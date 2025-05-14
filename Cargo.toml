@@ -1,0 +1,12 @@
+[package]
+name = "kaff_sso"
+description = "Small-buffer-optimized generic buffer and UTF-8 string type."
+version = "0.1.4"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+napi = { version = "2.16.17", features = ["napi6"], optional = true }
+
+[features]
+napi = ["dep:napi"]
