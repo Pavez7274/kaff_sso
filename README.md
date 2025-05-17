@@ -48,9 +48,39 @@ use napi::FromNapiValue;
 
 ## Safety
 
-* `as_slice()` is `unsafe`: the caller must guarantee the internal data is valid.
-* Converting `UTF8` to `&str` relies on `unsafe { std::mem::transmute }`.
+This crate exposes several `unsafe` interfaces that require careful usage:
 
-## License
+* **`unsafe fn as_slice(&self) -> &[E]`**
 
-Licensed under MIT OR Apache-2.0
+  * Returns a raw slice constructed from a pointer and length. The caller must ensure:
+
+    1. The buffer contents remain valid for the returned lifetime.
+    2. No other mutable references exist while the slice is alive.
+    3. The element type `E` has a valid bit-pattern in the first `len()` positions.
+
+* **`unsafe fn as_mut_ptr(&mut self) -> *mut E`**
+
+  * Provides an unchecked mutable pointer. The caller must ensure:
+
+    1. Pointer arithmetic will not overflow or exceed the buffer bounds.
+    2. No immutable references alias the same memory.
+    3. Any writes via this pointer respect the valid bit-patterns for `E`.
+
+* **`impl AsRef<str>` and `Deref<Target = str>` for `UTF8`**
+
+  * Both use `mem::transmute` to cast a `&[u8]` slice to `&str` without revalidation. The user must guarantee that the contained bytes are valid UTF-8.
+
+* **`From<UTF8> for String`**
+
+  * Consumes the buffer via `String::from_raw_parts(ptr, len, len)`. Ensure that:
+
+    1. The `UTF8` instance holds a contiguous heap buffer (i.e. the `Boxed` variant).
+    2. The memory allocation matches what `String` expects (pointer, length, capacity).
+    3. No double-drop occurs—once converted, do not use the original `UTF8` again.
+
+### Best Practices
+
+* Prefer the safe APIs (`as_slice` with prior validation via `std::str::from_utf8`) whenever possible.
+* Wrap `unsafe` calls in minimal scopes and document the invariants being upheld.
+* Do not mix safe and unsafe accesses that could violate Rust’s aliasing rules.
+
