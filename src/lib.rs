@@ -1,14 +1,16 @@
+#![allow(unsafe_op_in_unsafe_fn)]
+
 /// A fixed-capacity or heap-allocated buffer storing elements of type `E`.
 ///
 /// Small buffers (up to 256 elements) are stored inline; larger ones use heap allocation.
-pub enum Str<E> {
-    B8   { buf: [E;   8], len: u8 },
-    B16  { buf: [E;  16], len: u8 },
-    B32  { buf: [E;  32], len: u8 },
-    B64  { buf: [E;  64], len: u8 },
-    B128 { buf: [E; 128], len: u8 },
-    B256 { buf: [E; 256], len: u8 },
-    Heap(Box<[E]>)                 ,
+pub enum Str<E: Sized> {
+    B8    { buf: [E;   8], len: u8    },
+    B16   { buf: [E;  16], len: u8    },
+    B32   { buf: [E;  32], len: u8    },
+    B64   { buf: [E;  64], len: u8    },
+    B128  { buf: [E; 128], len: u8    },
+    B256  { buf: [E; 256], len: u8    },
+    Boxed { buf: Box<[E]>, len: usize },
     Empty
 }
 
@@ -17,40 +19,74 @@ pub type UTF8 = Str<u8>;
 
 impl<E> Str<E> {
     /// Returns a slice of the stored elements.
-    pub fn as_slice(&self) -> &[E] {
+    pub unsafe fn as_slice(&self) -> &[E] {
+        let (ptr, len) = match self {
+            Self::B8    { buf, len } => (buf.as_ptr(), *len as _),
+            Self::B16   { buf, len } => (buf.as_ptr(), *len as _),
+            Self::B32   { buf, len } => (buf.as_ptr(), *len as _),
+            Self::B64   { buf, len } => (buf.as_ptr(), *len as _),
+            Self::B128  { buf, len } => (buf.as_ptr(), *len as _),
+            Self::B256  { buf, len } => (buf.as_ptr(), *len as _),
+            Self::Boxed { buf, len } => (buf.as_ptr(), *len     ),
+            Self::Empty => (std::ptr::null(), 0)
+        };
+
+        &*std::ptr::slice_from_raw_parts(ptr, len)
+    }
+
+    /// Returns a raw pointer to the buffer.
+    pub fn as_ptr(&self) -> *const E {
         match self {
-            Str::Empty             => &[],
-            Str::Heap(slice)       => slice,
-            Str::B8   { buf, len } => &buf[..(*len as usize)],
-            Str::B16  { buf, len } => &buf[..(*len as usize)],
-            Str::B32  { buf, len } => &buf[..(*len as usize)],
-            Str::B64  { buf, len } => &buf[..(*len as usize)],
-            Str::B128 { buf, len } => &buf[..(*len as usize)],
-            Str::B256 { buf, len } => &buf[..(*len as usize)],
+            Self::B8    { buf, .. } => buf.as_ptr(),
+            Self::B16   { buf, .. } => buf.as_ptr(),
+            Self::B32   { buf, .. } => buf.as_ptr(),
+            Self::B64   { buf, .. } => buf.as_ptr(),
+            Self::B128  { buf, .. } => buf.as_ptr(),
+            Self::B256  { buf, .. } => buf.as_ptr(),
+            Self::Boxed { buf, .. } => buf.as_ptr(),
+            Self::Empty => std::ptr::null()
         }
     }
 
-    /// Returns a raw pointer to the first element of the buffer.
-    pub fn as_ptr(&self) -> *const E {
-        self.as_slice().as_ptr()
+    /// Returns an unsafe mutable raw pointer to the buffer.
+    pub unsafe fn as_mut_ptr(&mut self) -> *mut E {
+        match self {
+            Self::B8    { buf, .. } => buf.as_mut_ptr(),
+            Self::B16   { buf, .. } => buf.as_mut_ptr(),
+            Self::B32   { buf, .. } => buf.as_mut_ptr(),
+            Self::B64   { buf, .. } => buf.as_mut_ptr(),
+            Self::B128  { buf, .. } => buf.as_mut_ptr(),
+            Self::B256  { buf, .. } => buf.as_mut_ptr(),
+            Self::Boxed { buf, .. } => buf.as_mut_ptr(),
+            Self::Empty => std::ptr::null_mut()
+        }
     }
 
     /// Returns the number of elements in the buffer.
     pub fn len(&self) -> usize {
-        self.as_slice().len()
+        match self {
+            Self::B8    { len, .. } |
+            Self::B16   { len, .. } |
+            Self::B32   { len, .. } |
+            Self::B64   { len, .. } |
+            Self::B128  { len, .. } |
+            Self::B256  { len, .. } => *len as _,
+            Self::Boxed { len, .. } => *len     ,
+            Self::Empty => 0
+        }
     }
 }
 
 impl<E> PartialEq for Str<E> {
     fn eq(&self, other: &Self) -> bool {
-        self.as_ptr() == other.as_ptr()
+        self.as_ptr() == other.as_ptr() && self.len() == other.len()
     }
 }
 impl<E> Eq for Str<E> { }
 
 impl<E> PartialOrd for Str<E> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.len().cmp(&other.len()))
+        self.len().partial_cmp(&other.len())
     }
 }
 
@@ -62,117 +98,164 @@ impl<E> Ord for Str<E> {
 
 impl AsRef<str> for UTF8 {
     fn as_ref(&self) -> &str {
-        unsafe { std::str::from_utf8_unchecked(self.as_slice()) }
+        unsafe { std::mem::transmute(self.as_slice()) }
     }
 }
 
 impl std::ops::Deref for UTF8 {
     type Target = str;
     fn deref(&self) -> &Self::Target {
-        unsafe { std::str::from_utf8_unchecked(self.as_slice()) }
+        unsafe { std::mem::transmute(self.as_slice()) }
     }
 }
 
 impl From<&str> for UTF8 {
-    fn from(s: &str) -> Self {
-        let bytes = s.as_bytes();
+    fn from(value: &str) -> Self {
+        let bytes = value.as_bytes();
         let len   = bytes.len();
         match len {
-            0 => Str::Empty,
+            0 => Self::Empty,
 
             1..=8 => {
                 let mut buf = [0u8; 8];
                 buf[..len].copy_from_slice(bytes);
-                Str::B8 { buf, len: len as u8 }
+                Self::B8 { buf, len: len as u8 }
             }
 
             9..=16 => {
                 let mut buf = [0u8; 16];
                 buf[..len].copy_from_slice(bytes);
-                Str::B16 { buf, len: len as u8 }
+                Self::B16 { buf, len: len as u8 }
             }
 
             17..=64 => {
                 let mut buf = [0u8; 64];
                 buf[..len].copy_from_slice(bytes);
-                Str::B64 { buf, len: len as u8 }
+                Self::B64 { buf, len: len as u8 }
             }
 
             65..=128 => {
                 let mut buf = [0u8; 128];
                 buf[..len].copy_from_slice(bytes);
-                Str::B128 { buf, len: len as u8 }
+                Self::B128 { buf, len: len as u8 }
             }
 
             129..=256 => {
                 let mut buf = [0u8; 256];
                 buf[..len].copy_from_slice(bytes);
-                Str::B256 { buf, len: len as u8 }
+                Self::B256 { buf, len: len as u8 }
             }
 
-            _ => Str::Heap(s.as_bytes().to_vec().into_boxed_slice()),
+            _ => Self::Boxed { buf: Box::from(value.as_bytes()), len }
+        }
+    }
+}
+
+impl From<&[u8]> for UTF8 {
+    fn from(slice: &[u8]) -> Self {
+        let len = slice.len();
+        match len {
+            0 => Self::Empty,
+
+            1..=8 => {
+                let mut buf = [0u8; 8];
+                buf[..len].copy_from_slice(slice);
+                Self::B8 { buf, len: len as u8 }
+            }
+
+            9..=16 => {
+                let mut buf = [0u8; 16];
+                buf[..len].copy_from_slice(slice);
+                Self::B16 { buf, len: len as u8 }
+            }
+
+            17..=64 => {
+                let mut buf = [0u8; 64];
+                buf[..len].copy_from_slice(slice);
+                Self::B64 { buf, len: len as u8 }
+            }
+
+            65..=128 => {
+                let mut buf = [0u8; 128];
+                buf[..len].copy_from_slice(slice);
+                Self::B128 { buf, len: len as u8 }
+            }
+
+            129..=256 => {
+                let mut buf = [0u8; 256];
+                buf[..len].copy_from_slice(slice);
+                Self::B256 { buf, len: len as u8 }
+            }
+
+            _ => Self::Boxed { buf: Box::from(slice), len }
+        }
+    }
+}
+
+impl From<String> for UTF8 {
+    fn from(value: String) -> Self {
+        let len = value.len();
+        match len {
+            0       => Self::Empty,
+            1..=256 => Self::from(value.as_str()),
+            _       => UTF8::Boxed { buf: value.into_boxed_str().into_boxed_bytes(), len }
+        }
+    }
+}
+
+impl From<UTF8> for String {
+    fn from(mut value: UTF8) -> Self {
+        match value {
+            UTF8::Empty => String::new(),
+            _ => unsafe {
+                String::from_raw_parts(value.as_mut_ptr(), value.len(), value.len())
+            }
         }
     }
 }
 
 #[cfg(feature = "napi")]
 mod napi_impl {
+    use napi::{bindgen_prelude::FromNapiValue, Status, sys::*, *};
     use std::os::raw::c_char;
-    use napi::{
-        bindgen_prelude::FromNapiValue,
-        sys::{self, napi_env, napi_get_value_string_utf8, napi_value}
-    };
-
     use crate::UTF8;
-
+    
     impl FromNapiValue for UTF8 {
-        unsafe fn from_napi_value(env: napi_env, value: napi_value) -> napi::Result<Self> {
-            let mut str_size: usize = 0;
+        unsafe fn from_napi_value(env: napi_env, value: napi_value) -> Result<Self> {
+            let mut needed = 0;
+            let status = napi_get_value_string_utf8(env, value, std::ptr::null_mut(), 0, &mut needed);
 
-            let status = unsafe {
-                napi_get_value_string_utf8(env, value, std::ptr::null_mut(), 0, &mut str_size)
-            };
-
-            if status != sys::Status::napi_ok {
-                return Err(napi::Error::new(
-                    napi::Status::from(status),
-                    "Failed to get string size",
-                ));
+            if status != 0 /* napi_ok */ {
+                return Err(Error::new(Status::from(status), "Failed to get string size"));
             }
 
-            let mut stc_buf = [0u8; 300];
-            let mut dyn_buf    = Vec::with_capacity(str_size + 1);
-            let mut status = 0i32;
-            let mut copied = 0   ;
+            if needed <= 256 {
+                let mut written = 0;
+                let mut buf     = [0u8; 257];
+                let status = napi_get_value_string_utf8(env, value, buf.as_mut_ptr() as *mut c_char, needed + 1, &mut written);
 
-            let slice = if str_size <= 300 {
-                status = unsafe {
-                    napi_get_value_string_utf8(env, value, stc_buf.as_mut_ptr() as *mut c_char, str_size + 1, &mut copied)
-                };
-
-                &stc_buf[..copied]
-            } else {
-                unsafe {
-                    napi_get_value_string_utf8(env, value, dyn_buf.as_mut_ptr() as *mut c_char, dyn_buf.len(), &mut copied);
+                if status != 0 /* napi_ok */ {
+                    return Err(Error::new(Status::from(status), "Failed stack read"));
                 }
-                
-                unsafe { dyn_buf.set_len(copied); }
-                dyn_buf.truncate(copied);
-                dyn_buf.as_slice()
-            };
 
-            if status != sys::Status::napi_ok {
-                return Err(napi::Error::new(
-                    napi::Status::from(status),
-                    "Failed to get string content",
-                ));
+                return std::str::from_utf8(&buf[..written])
+                    .map_err(|error| Error::from_reason(error.to_string()))
+                    .map(UTF8::from)
             }
 
-            let s = std::str::from_utf8(slice).map_err(|_| {
-                napi::Error::new(napi::Status::InvalidArg, "Invalid UTF-8 received from napi")
-            })?;
+            let mut written = 0;
+            let mut vec     = Vec::with_capacity(needed + 1);
 
-            Ok(UTF8::from(s))
+            let status = napi_get_value_string_utf8(env, value, vec.as_mut_ptr() as *mut c_char, needed + 1, &mut written);
+
+            if status != 0 /* napi_ok */ {
+                return Err(Error::new(Status::from(status), "Failed heap read"));
+            }
+
+            vec.set_len(written);
+            String::from_utf8(vec)
+                .map_err(|error| Error::from_reason(error.to_string()))
+                .map(UTF8::from)
         }
     }
 }
