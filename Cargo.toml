@@ -1,7 +1,8 @@
 [package]
 name = "kaff_sso"
 description = "Small-buffer-optimized generic buffer and UTF-8 string type."
-version = "0.2.0"
+repository = "https://github.com/Pavez7274/kaff_sso"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 

@@ -204,12 +204,11 @@ impl From<String> for UTF8 {
 }
 
 impl From<UTF8> for String {
-    fn from(mut value: UTF8) -> Self {
+    fn from(value: UTF8) -> Self {
         match value {
             UTF8::Empty => String::new(),
-            _ => unsafe {
-                String::from_raw_parts(value.as_mut_ptr(), value.len(), value.len())
-            }
+            UTF8::Boxed { buf, len } => unsafe { String::from_raw_parts(Box::into_raw(buf) as *mut u8, len as usize, len)}
+            _ => value.as_ref().to_string()
         }
     }
 }
