@@ -1,5 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
+use std::hash::{Hash, Hasher};
+
 /// A fixed-capacity or heap-allocated buffer storing elements of type `E`.
 ///
 /// Small buffers (up to 256 elements) are stored inline; larger ones use heap allocation.
@@ -93,6 +95,23 @@ impl<E> PartialOrd for Str<E> {
 impl<E> Ord for Str<E> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.len().cmp(&other.len())
+    }
+}
+
+impl<E: Hash> Hash for Str<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        
+        match self {
+            Str::Empty => { }
+            Str::B8    { buf, len } => (&buf[..*len as usize]).hash(state),
+            Str::B16   { buf, len } => (&buf[..*len as usize]).hash(state),
+            Str::B32   { buf, len } => (&buf[..*len as usize]).hash(state),
+            Str::B64   { buf, len } => (&buf[..*len as usize]).hash(state),
+            Str::B128  { buf, len } => (&buf[..*len as usize]).hash(state),
+            Str::B256  { buf, len } => (&buf[..*len as usize]).hash(state),
+            Str::Boxed { buf, len } => (&buf[..*len]).hash(state),
+        }
     }
 }
 
