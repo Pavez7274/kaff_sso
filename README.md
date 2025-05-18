@@ -1,6 +1,20 @@
 # kaff_sso
 
+<p>
+  <a href="https://discord.gg/MYZbyRYaxF">
+    <img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white" alt="Discord">
+  </a>
+  <a href="https://crates.io/crates/kaff_sso">
+    <img src="https://img.shields.io/crates/v/kaff_sso.svg">
+  </a>
+  <a href="https://deepwiki.com/Pavez7274/kaff_sso">
+    <img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki">
+  </a>
+</p>
+
 `kaff_sso` provides a generic fixed-capacity buffer with heap fallback for both small and large collections.
+
+
 
 ## Features
 
